@@ -19,6 +19,7 @@ Fluxo a cada ciclo:
 Rodar com: python main.py
 """
 
+import html
 import re
 import time
 from datetime import datetime
@@ -94,27 +95,27 @@ def registrar_entrada(jogo: dict, est: dict, alvo: int, minuto_real, linha, odd:
     principal = (alvo == config.MINUTO_GATILHO)
     descricao = f"{jogo['time_casa']} x {jogo['time_fora']} ({jogo['liga']})"
 
+    texto_alerta = None
+    msg_canal_id = None
     if principal:
         texto_alerta = (
-            f"{jogo['time_casa']} x {jogo['time_fora']}\n"
-            f"{jogo['liga']}\n"
+            f"{html.escape(jogo['time_casa'], quote=False)} x {html.escape(jogo['time_fora'], quote=False)}\n"
+            f"{html.escape(jogo['liga'], quote=False)}\n"
             f"Under {linha} @{odd:.2f}"
         )
+        # privado: alerta em tempo real
         telegram_client.enviar_alerta(texto_alerta)
+        # canal de avisos: mesma mensagem; depois é editada com ✅/❌
+        msg_canal_id = telegram_client.enviar_relatorio_simulacao(texto_alerta)
 
     estado.registrar_aposta_simulada(
         est, jogo["fi"], linha, odd, descricao, liga=jogo["liga"],
         minuto_alvo=alvo, minuto_real=minuto_real, notificar=principal,
     )
     aposta = est["apostas_abertas"][-1]
-
     if principal:
-        telegram_client.enviar_relatorio_simulacao(
-            f"📝 ENTRADA REGISTRADA\n"
-            f"{descricao}\n"
-            f"Under {linha} @{odd:.2f} | stake R${config.STAKE_UNIDADE:.2f}\n"
-            f"Aguardando resultado..."
-        )
+        aposta["msg_canal_id"] = msg_canal_id
+        aposta["msg_canal_texto"] = texto_alerta
 
     sheets_client.registrar_entrada(
         id_aposta=aposta["id_aposta"],
@@ -254,13 +255,19 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
               f"{aposta['jogo']} | lucro: R${resolvida['lucro']}")
 
         if aposta.get("notificar", True):
-            texto = (
-                f"{emoji} {resolvida['resultado'].upper()}\n"
-                f"{aposta['jogo']}\n"
-                f"{aposta['linha']} @{aposta['odd']:.2f} | stake R${aposta['stake']:.2f}\n"
-                f"Placar final: {gols_totais_final} gols | Lucro: R${resolvida['lucro']:+.2f}"
+            marca = config.MARCAS_RESULTADO.get(resolvida["resultado"], "❔")
+            base = aposta.get("msg_canal_texto") or (
+                f"{html.escape(aposta['jogo'], quote=False)}\n"
+                f"Under {aposta['linha']} @{aposta['odd']:.2f}"
             )
-            telegram_client.enviar_relatorio_simulacao(texto)
+            novo_texto = f"{base}\n{marca}"
+            editou = False
+            if aposta.get("msg_canal_id"):
+                editou = telegram_client.editar_mensagem(
+                    config.CHAT_ID_SIMULACAO, aposta["msg_canal_id"], novo_texto)
+            if not editou:
+                # sem mensagem original (ex: aposta antiga) ou edição falhou
+                telegram_client.enviar_relatorio_simulacao(novo_texto)
 
         sheets_client.atualizar_resultado(
             id_aposta=aposta.get("id_aposta", ""),

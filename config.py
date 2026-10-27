@@ -102,6 +102,18 @@ MAX_EVENT_POR_CICLO = 8
 
 
 # ---------------------------------------------------------------------
+# Marcação de resultado no canal de avisos: a mensagem do alerta é
+# editada e recebe estas marcas embaixo quando o jogo termina.
+# ---------------------------------------------------------------------
+MARCAS_RESULTADO = {
+    "green": "✅✅✅✅✅✅",
+    "meio green": "✅✅✅",
+    "void": "⚪",
+    "meio red": "🟥",
+    "red": "❌",
+}
+
+# ---------------------------------------------------------------------
 # Simulação (banca fictícia)
 # ---------------------------------------------------------------------
 BANCA_INICIAL = 100_000.00   # R$100.000
