@@ -31,6 +31,9 @@ import telegram_client
 import sheets_client
 
 
+_jogos_vistos = set()  # só pro log de diagnóstico ("[novo jogo ...]")
+
+
 def liga_excluida(nome_liga: str) -> bool:
     nome = (nome_liga or "").lower()
     termos = list(config.LIGAS_EXCLUIDAS_TERMOS) + list(config.PAISES_EXCLUIDOS_TERMOS)
@@ -140,11 +143,19 @@ def processar_jogo(jogo: dict, est: dict, orcamento: dict = None) -> None:
     # checagem BARATA (sem API): se o placar já não é 0x0, o jogo nunca
     # mais bate o padrão -- encerra o acompanhamento dele.
     if (jogo["gols_casa"], jogo["gols_fora"]) != config.PLACAR_GATILHO:
+        print(f"[descartado {fi}] {jogo['time_casa']} x {jogo['time_fora']}: placar "
+              f"{jogo['gols_casa']}-{jogo['gols_fora']} (min estimado {jogo['minuto_estimado']})")
         estado.marcar_jogo_verificado(est, fi)
         return
 
     ja_visto = fi in est["entradas_por_jogo"]
     if not ja_visto and not dentro_da_janela(jogo["minuto_estimado"]):
+        # 0x0 mas fora da janela de minutos estimados: loga 1x por jogo e faixa
+        chave = (fi, (jogo["minuto_estimado"] or 0) // 10)
+        if chave not in _jogos_vistos:
+            _jogos_vistos.add(chave)
+            print(f"[fora da janela {fi}] {jogo['time_casa']} x {jogo['time_fora']}: 0x0, "
+                  f"min estimado {jogo['minuto_estimado']}")
         return
 
     feitos = est["entradas_por_jogo"].setdefault(fi, [])
@@ -160,6 +171,8 @@ def processar_jogo(jogo: dict, est: dict, orcamento: dict = None) -> None:
     # teto de chamadas /event por ciclo (cota compartilhada da API)
     if orcamento is not None:
         if orcamento["restante"] <= 0:
+            print(f"[aviso] teto de /event por ciclo atingido -- jogo {fi} "
+                  f"({jogo['time_casa']} x {jogo['time_fora']}) fica pro próximo ciclo")
             return  # tenta no próximo ciclo
         orcamento["restante"] -= 1
 
@@ -324,6 +337,18 @@ def ciclo() -> None:
 
     lista_ao_vivo = betsapi_client.listar_jogos_ao_vivo()
     jogos = [j for j in lista_ao_vivo if not liga_excluida(j["liga"])]
+
+    # diagnóstico: uma linha por jogo na 1ª vez que aparece na lista ao vivo,
+    # mostrando liga, placar e se o filtro de liga/país o descartou
+    for j in lista_ao_vivo:
+        if j["fi"] in _jogos_vistos:
+            continue
+        _jogos_vistos.add(j["fi"])
+        if len(_jogos_vistos) > 5000:
+            _jogos_vistos.clear()
+        status = "EXCLUIDA pelo filtro" if liga_excluida(j["liga"]) else "ok"
+        print(f"[novo jogo {j['fi']}] {j['liga']} | {j['time_casa']} x {j['time_fora']} | "
+              f"{j['gols_casa']}-{j['gols_fora']} | min estimado {j['minuto_estimado']} | {status}")
 
     na_janela = [j for j in jogos if dentro_da_janela(j["minuto_estimado"])]
     print(f"[ciclo {datetime.now().strftime('%H:%M:%S')}] {len(jogos)} jogos ao vivo (após filtro) | "
