@@ -207,8 +207,11 @@ def processar_jogo(jogo: dict, est: dict, orcamento: dict = None) -> None:
                 feitos.append(t)
 
         odds = detalhe["odds_under"]
+        extra = ""
+        if not odds:
+            extra = f" | mercados de gols recebidos: {detalhe.get('grupos_gols', [])}"
         print(f"[debug] {jogo['time_casa']} x {jogo['time_fora']} (jogo {fi}) "
-              f"minuto {minuto}, alvo {alvo}: odds {odds}")
+              f"minuto {minuto}, alvo {alvo}: odds {odds}{extra}")
         linha, odd = escolher_linha(odds)
         if linha is not None:
             feitos.append(alvo)

@@ -233,9 +233,20 @@ def obter_detalhe_evento(fi: str) -> dict:
     minuto_exato = _calcular_minuto_exato(resultados)
     odds_under = _extrair_odds_under(resultados)
 
+    # diagnóstico: nomes dos mercados (MG) que falam de gols/linhas, pra saber
+    # o que a API mandou quando odds_under vem vazio
+    grupos_gols = sorted({
+        (it.get("NA") or "").strip()
+        for it in resultados
+        if isinstance(it, dict) and it.get("type") == "MG"
+        and any(k in (it.get("NA") or "").lower()
+                for k in ("goal", "total", "over", "under", "line"))
+    })
+
     return {
         "minuto_exato": minuto_exato,
         "odds_under": odds_under,
+        "grupos_gols": grupos_gols,
         "_bruto_debug": resultados,  # temporário: pra diagnosticar formato real
     }
 
