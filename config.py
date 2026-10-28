@@ -107,11 +107,20 @@ MAX_EVENT_POR_CICLO = 8
 # ---------------------------------------------------------------------
 MARCAS_RESULTADO = {
     "green": "✅✅✅✅✅✅",
-    "meio green": "✅✅✅",
-    "void": "⚪",
-    "meio red": "🟥",
+    "meio green": "🔄✅",
+    "void": "🔄",
+    "meio red": "🔄❌",
     "red": "❌",
 }
+
+# Canal extra de avisos do minuto 20 (mesmo formato do canal principal).
+# Defina CHAT_ID_MIN20 no Render; sem ele, o minuto 20 segue só na planilha.
+CHAT_ID_MIN20 = os.environ.get("CHAT_ID_MIN20", "")
+
+# minuto de entrada -> chat que recebe o aviso (o 22 também manda no privado)
+CANAIS_POR_MINUTO = {MINUTO_GATILHO: CHAT_ID_SIMULACAO}
+if CHAT_ID_MIN20:
+    CANAIS_POR_MINUTO[20] = CHAT_ID_MIN20
 
 # ---------------------------------------------------------------------
 # Simulação (banca fictícia)
@@ -131,7 +140,7 @@ GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
 # Operação
 # ---------------------------------------------------------------------
 INTERVALO_POLLING_SEGUNDOS = 45  # frequência de checagem dos jogos ao vivo
-HORARIO_RELATORIO_DIARIO = "23:55"  # horário (HH:MM, fuso do servidor) do resumo
+HORARIO_RELATORIO_DIARIO = "23:59"  # horário (HH:MM, Brasília) do resumo
 
 # Arquivo onde o estado persiste entre reinicializações do processo
 # (jogos já notificados, apostas simuladas em aberto, histórico)

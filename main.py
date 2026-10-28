@@ -22,7 +22,8 @@ Rodar com: python main.py
 import html
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import config
 import estado
@@ -32,6 +33,9 @@ import sheets_client
 
 
 _jogos_vistos = set()  # só pro log de diagnóstico ("[novo jogo ...]")
+
+
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 
 def liga_excluida(nome_liga: str) -> bool:
@@ -100,23 +104,26 @@ def registrar_entrada(jogo: dict, est: dict, alvo: int, minuto_real, linha, odd:
 
     texto_alerta = None
     msg_canal_id = None
-    if principal:
+    canal = config.CANAIS_POR_MINUTO.get(alvo)
+    if canal:
         texto_alerta = (
             f"{html.escape(jogo['time_casa'], quote=False)} x {html.escape(jogo['time_fora'], quote=False)}\n"
             f"{html.escape(jogo['liga'], quote=False)}\n"
             f"Under {linha} @{odd:.2f}"
         )
-        # privado: alerta em tempo real
-        telegram_client.enviar_alerta(texto_alerta)
-        # canal de avisos: mesma mensagem; depois é editada com ✅/❌
-        msg_canal_id = telegram_client.enviar_relatorio_simulacao(texto_alerta)
+        if principal:
+            # privado: alerta em tempo real (só o minuto principal)
+            telegram_client.enviar_alerta(texto_alerta)
+        # canal de avisos: mesma mensagem; depois é editada com a marca
+        msg_canal_id = telegram_client.enviar_mensagem(canal, texto_alerta)
 
     estado.registrar_aposta_simulada(
         est, jogo["fi"], linha, odd, descricao, liga=jogo["liga"],
         minuto_alvo=alvo, minuto_real=minuto_real, notificar=principal,
     )
     aposta = est["apostas_abertas"][-1]
-    if principal:
+    if canal:
+        aposta["chat_canal"] = canal
         aposta["msg_canal_id"] = msg_canal_id
         aposta["msg_canal_texto"] = texto_alerta
 
@@ -270,7 +277,9 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
         print(f"{emoji} {aposta['linha']} (min {aposta.get('minuto_alvo', '?')}) | "
               f"{aposta['jogo']} | lucro: R${resolvida['lucro']}")
 
-        if aposta.get("notificar", True):
+        chat_destino = aposta.get("chat_canal") or (
+            config.CHAT_ID_SIMULACAO if aposta.get("notificar", True) else None)
+        if chat_destino:
             marca = config.MARCAS_RESULTADO.get(resolvida["resultado"], "❔")
             base = aposta.get("msg_canal_texto") or (
                 f"{html.escape(aposta['jogo'], quote=False)}\n"
@@ -280,10 +289,10 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
             editou = False
             if aposta.get("msg_canal_id"):
                 editou = telegram_client.editar_mensagem(
-                    config.CHAT_ID_SIMULACAO, aposta["msg_canal_id"], novo_texto)
+                    chat_destino, aposta["msg_canal_id"], novo_texto)
             if not editou:
                 # sem mensagem original (ex: aposta antiga) ou edição falhou
-                telegram_client.enviar_relatorio_simulacao(novo_texto)
+                telegram_client.enviar_mensagem(chat_destino, novo_texto)
 
         sheets_client.atualizar_resultado(
             id_aposta=aposta.get("id_aposta", ""),
@@ -302,36 +311,55 @@ def _placar_final_estimado(fi: str):
     return gols_casa + gols_fora
 
 
+def _em_brasilia(iso_utc: str) -> datetime:
+    """Converte um timestamp salvo pelo servidor (UTC, sem fuso) para Brasília."""
+    return datetime.fromisoformat(iso_utc).replace(tzinfo=timezone.utc).astimezone(FUSO_BR)
+
+
 def enviar_relatorio_diario_se_necessario(est: dict) -> None:
-    hoje = datetime.now().strftime("%Y-%m-%d")
+    agora_br = datetime.now(FUSO_BR)
+    hoje = agora_br.strftime("%Y-%m-%d")
     if est.get("ultimo_relatorio_enviado") == hoje:
         return
-
-    agora = datetime.now().strftime("%H:%M")
-    if agora < config.HORARIO_RELATORIO_DIARIO:
+    if agora_br.strftime("%H:%M") < config.HORARIO_RELATORIO_DIARIO:
         return
 
     banca_atual = est["banca"]
-    lucro_total_acumulado = banca_atual - config.BANCA_INICIAL
+    MESES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
+             "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-    # só as entradas do minuto principal (as outras são só teste, na planilha)
-    apostas_hoje = [
-        a for a in est["apostas_resolvidas"]
-        if a["data_resolucao"].startswith(hoje) and a.get("notificar", True)
-    ]
-    greens = sum(1 for a in apostas_hoje if a["resultado"] == "green")
-    reds = sum(1 for a in apostas_hoje if a["resultado"] == "red")
-    lucro_hoje = sum(a["lucro"] for a in apostas_hoje)
+    def _montar(chat_id, minuto):
+        # lucro (em unidades) por dia do mês, em horário de Brasília,
+        # só das entradas avisadas neste canal
+        por_dia = {}
+        for a in est["apostas_resolvidas"]:
+            canal = a.get("chat_canal") or (
+                config.CHAT_ID_SIMULACAO if a.get("notificar", True) else None)
+            if canal != chat_id:
+                continue
+            d = _em_brasilia(a["data_resolucao"])
+            if d.strftime("%Y-%m") != hoje[:7]:
+                continue
+            por_dia[d.day] = por_dia.get(d.day, 0.0) + a["lucro"] / config.STAKE_UNIDADE
+        linhas = []
+        for dia in sorted(por_dia):
+            u = por_dia[dia]
+            emoji = "✅" if u > 1e-9 else ("❌" if u < -1e-9 else "🔄")
+            sufixo = "  ← hoje" if dia == agora_br.day else ""
+            linhas.append(f"{dia:02d}: {emoji} {u:+.2f}{sufixo}")
+        mes_total = sum(por_dia.values())
+        txt = (
+            f"📊 Relatório diário (min {minuto}) — {agora_br.strftime('%d/%m')}\n\n"
+            f"{MESES[agora_br.month]}\n"
+            + ("\n".join(linhas) if linhas else "sem entradas ainda")
+            + f"\n\nMês: {mes_total:+.2f} un"
+        )
+        if minuto == config.MINUTO_GATILHO:
+            txt += f"\nBanca atual: R${banca_atual:,.2f}"
+        return txt
 
-    texto_relatorio = (
-        f"📊 Relatório diário — {hoje}\n\n"
-        f"Entradas hoje: {len(apostas_hoje)} ({greens}✅ / {reds}❌)\n"
-        f"Lucro hoje: R${lucro_hoje:+.2f}\n\n"
-        f"Banca atual: R${banca_atual:,.2f}\n"
-        f"Lucro acumulado: R${lucro_total_acumulado:+,.2f}"
-    )
-
-    telegram_client.enviar_relatorio_simulacao(texto_relatorio)
+    for minuto, chat_id in config.CANAIS_POR_MINUTO.items():
+        telegram_client.enviar_mensagem(chat_id, _montar(chat_id, minuto))
     est["ultimo_relatorio_enviado"] = hoje
 
 
