@@ -116,11 +116,14 @@ MARCAS_RESULTADO = {
 # Canal extra de avisos do minuto 20 (mesmo formato do canal principal).
 # Defina CHAT_ID_MIN20 no Render; sem ele, o minuto 20 segue só na planilha.
 CHAT_ID_MIN20 = os.environ.get("CHAT_ID_MIN20", "")
+CHAT_ID_MIN18 = os.environ.get("CHAT_ID_MIN18", "")
 
 # minuto de entrada -> chat que recebe o aviso (o 22 também manda no privado)
 CANAIS_POR_MINUTO = {MINUTO_GATILHO: CHAT_ID_SIMULACAO}
 if CHAT_ID_MIN20:
     CANAIS_POR_MINUTO[20] = CHAT_ID_MIN20
+if CHAT_ID_MIN18:
+    CANAIS_POR_MINUTO[18] = CHAT_ID_MIN18
 
 # ---------------------------------------------------------------------
 # Simulação (banca fictícia)

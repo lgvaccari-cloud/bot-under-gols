@@ -106,6 +106,29 @@ def _resultado_perna(gols_totais_final: int, linha_perna: float) -> str:
         return "win" if gols_totais_final < linha_perna else "lose"
 
 
+def calcular_resultado(linha, odd: float, stake: float, gols_totais_final: int):
+    """Resultado e lucro de um Under (sem mexer em banca/estado). -> (resultado, lucro)"""
+    numero_linha = float(linha)
+    eh_quebrada = abs(numero_linha * 4 - round(numero_linha * 4)) < 1e-9 and \
+        (round(numero_linha * 4) % 2 != 0)  # termina em .25 ou .75
+    if eh_quebrada:
+        r = {_resultado_perna(gols_totais_final, numero_linha - 0.25),
+             _resultado_perna(gols_totais_final, numero_linha + 0.25)}
+        if r == {"win"}:
+            return "green", stake * (odd - 1)
+        if r == {"lose"}:
+            return "red", -stake
+        if r == {"win", "push"}:
+            return "meio green", (stake / 2) * (odd - 1)
+        return "meio red", -(stake / 2)
+    r = _resultado_perna(gols_totais_final, numero_linha)
+    if r == "win":
+        return "green", stake * (odd - 1)
+    if r == "push":
+        return "void", 0.0
+    return "red", -stake
+
+
 def resolver_aposta(estado: dict, aposta: dict, gols_totais_final: int) -> dict:
     """
     Aplica o resultado de uma aposta simulada de Under X gols e atualiza

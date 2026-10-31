@@ -36,6 +36,8 @@ _planilha = None
 COLUNA_ID = 11  # K -- 1-indexado (A=1, B=2, ..., K=11)
 COLUNA_RESULTADO = 9   # I
 COLUNA_RETORNO = 10    # J
+COLUNA_PLACAR = 15     # O -- placar final ("2 x 1")
+_cabecalho_ok = False
 
 
 def _conectar():
@@ -92,11 +94,25 @@ def registrar_entrada(id_aposta: str, data_hora: str, campeonato: str,
         print(f"[erro] Falha ao registrar entrada na planilha: {e}")
 
 
-def atualizar_resultado(id_aposta: str, resultado: str, lucro_reais: float) -> None:
+def garantir_cabecalho_placar() -> None:
+    """Escreve o título da coluna O (Placar final) uma vez por execução."""
+    global _cabecalho_ok
+    if _cabecalho_ok:
+        return
+    try:
+        aba = _conectar()
+        aba.batch_update([{"range": "O1", "values": [["Placar final"]]}],
+                         value_input_option="RAW")
+        _cabecalho_ok = True
+    except Exception as e:
+        print(f"[erro] Falha ao escrever cabeçalho do placar: {e}")
+
+
+def atualizar_resultado(id_aposta: str, resultado: str, lucro_reais: float,
+                        placar: str = "") -> None:
     """
-    Acha a linha com esse id_aposta (coluna K) e atualiza Resultado
-    e Retorno Líquido. Se não achar a linha (ex: foi escrita antes
-    dessa função existir), não faz nada.
+    Acha a linha com esse id_aposta (coluna K) e atualiza Resultado,
+    Retorno Líquido e Placar final. Se não achar a linha, não faz nada.
     """
     try:
         aba = _conectar()
@@ -108,10 +124,55 @@ def atualizar_resultado(id_aposta: str, resultado: str, lucro_reais: float) -> N
             return
 
         retorno_liquido_unidades = round(lucro_reais / config.STAKE_UNIDADE, 4)
-        # uma única chamada (em vez de duas) -- poupa a cota de escritas do Sheets
-        aba.batch_update([{
+        dados = [{
             "range": f"I{celula.row}:J{celula.row}",
             "values": [[resultado.title(), retorno_liquido_unidades]],
-        }])
+        }]
+        if placar:
+            dados.append({"range": f"O{celula.row}", "values": [[placar]]})
+        # uma única chamada -- poupa a cota de escritas do Sheets
+        aba.batch_update(dados, value_input_option="RAW")
     except Exception as e:
         print(f"[erro] Falha ao atualizar resultado na planilha: {e}")
+
+
+def ler_linhas() -> list:
+    """Todas as linhas do Log (lista de listas de texto), ou [] se falhar."""
+    try:
+        return _conectar().get_all_values()
+    except Exception as e:
+        print(f"[erro] Falha ao ler a planilha: {e}")
+        return []
+
+
+def escrever_correcoes(correcoes: list) -> bool:
+    """
+    correcoes: lista de {"row": n, "resultado": "Green", "retorno": 0.85, "placar": "2 x 1"}
+    Atualiza I:J e O dessas linhas numa chamada só.
+    """
+    if not correcoes:
+        return True
+    try:
+        aba = _conectar()
+        dados = []
+        for c in correcoes:
+            dados.append({"range": f"I{c['row']}:J{c['row']}",
+                          "values": [[c["resultado"], c["retorno"]]]})
+            dados.append({"range": f"O{c['row']}", "values": [[c["placar"]]]})
+        aba.batch_update(dados, value_input_option="RAW")
+        return True
+    except Exception as e:
+        print(f"[erro] Falha ao gravar correções na planilha: {e}")
+        return False
+
+
+def escrever_placares(itens: list) -> bool:
+    """Só a coluna O (placar final), sem mexer em resultado/retorno."""
+    try:
+        aba = _conectar()
+        aba.batch_update([{"range": f"O{c['row']}", "values": [[c["placar"]]]} for c in itens],
+                         value_input_option="RAW")
+        return True
+    except Exception as e:
+        print(f"[erro] Falha ao gravar placares: {e}")
+        return False

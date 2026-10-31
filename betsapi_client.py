@@ -193,6 +193,14 @@ def obter_placar_final(fi: str):
     for item in resultados:
         if not isinstance(item, dict):
             continue
+        # só vale o placar de jogo ENCERRADO (time_status 3). Se o jogo ainda
+        # está rolando, "ss" é o placar parcial -- usar ele resolvia apostas
+        # antes da hora (ex: Under 3.25 virou green com 5 gols no final).
+        ts = item.get("time_status")
+        if ts is not None and str(ts) != "3":
+            print(f"[debug] jogo {fi} ainda não encerrado (time_status={ts}); "
+                  f"não resolve a aposta agora.")
+            return None
         ss = item.get("ss")
         if ss and "-" in str(ss):
             try:

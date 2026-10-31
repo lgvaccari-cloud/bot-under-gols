@@ -259,14 +259,26 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
             ainda_abertas.append(aposta)
             continue
 
+        # trava de segurança: um jogo leva pelo menos ~80 min depois da
+        # entrada pra acabar. Se sumiu da lista antes disso (falha da API,
+        # página truncada), mantém a aposta aberta em vez de resolver.
+        try:
+            decorrido = (datetime.now() - datetime.fromisoformat(aposta["data_entrada"])).total_seconds() / 60
+        except Exception:
+            decorrido = 999
+        if decorrido < 80:
+            ainda_abertas.append(aposta)
+            continue
+
         # jogo não está mais na lista de ao vivo -- assumimos encerrado
         # e buscamos o placar final oficial via /bet365/result.
         if fi not in placares_cache:
-            placares_cache[fi] = _placar_final_estimado(fi)
-        gols_totais_final = placares_cache[fi]
-        if gols_totais_final is None:
+            placares_cache[fi] = betsapi_client.obter_placar_final(fi)
+        placar_final = placares_cache[fi]
+        if placar_final is None:
             ainda_abertas.append(aposta)
             continue
+        gols_totais_final = placar_final[0] + placar_final[1]
 
         resolvida = estado.resolver_aposta(est, aposta, gols_totais_final)
         emojis_resultado = {
@@ -298,6 +310,7 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
             id_aposta=aposta.get("id_aposta", ""),
             resultado=resolvida["resultado"],
             lucro_reais=resolvida["lucro"],
+            placar=f"{placar_final[0]} x {placar_final[1]}",
         )
 
     est["apostas_abertas"] = ainda_abertas
@@ -309,6 +322,120 @@ def _placar_final_estimado(fi: str):
         return None
     gols_casa, gols_fora = resultado
     return gols_casa + gols_fora
+
+
+# ---------------------------------------------------------------------
+# Reconciliação: reconfere na BetsAPI o placar FINAL de toda linha já
+# resolvida na planilha, corrige resultado/retorno se estiver errado e
+# preenche a coluna "Placar final". Poucas chamadas por ciclo.
+# ---------------------------------------------------------------------
+_RECON_JOGOS_POR_CICLO = 4
+_RECON_MAX_TENTATIVAS = 6
+_RECON_ESPERA_SEG = 20 * 60
+_recon = {"pendentes": None, "proxima_leitura": 0.0, "tentativas": {}, "ultima": {}}
+_RESULTADOS_FINAIS = {"green", "red", "void", "meio green", "meio red"}
+
+
+def _num(txt) -> float:
+    return float(str(txt).replace(",", ".").strip())
+
+
+def _ler_pendentes_recon() -> dict:
+    """fi -> lista de linhas da planilha resolvidas e ainda sem placar final."""
+    linhas = sheets_client.ler_linhas()
+    pend = {}
+    for i, l in enumerate(linhas[1:], start=2):
+        if len(l) < 11:
+            continue
+        if l[8].strip().lower() not in _RESULTADOS_FINAIS:
+            continue
+        if len(l) >= 15 and l[14].strip():
+            continue
+        fi = l[10].split("_")[0]
+        if not fi:
+            continue
+        pend.setdefault(fi, []).append({
+            "row": i, "id": l[10], "linha": l[4], "odd": l[7], "stake": l[6],
+            "resultado_atual": l[8].strip().lower(),
+        })
+    return pend
+
+
+def reconciliar_placares(est: dict) -> None:
+    agora = time.time()
+    if _recon["pendentes"] is None or (not _recon["pendentes"] and agora >= _recon["proxima_leitura"]):
+        sheets_client.garantir_cabecalho_placar()
+        _recon["pendentes"] = _ler_pendentes_recon()
+        _recon["proxima_leitura"] = agora + 30 * 60
+        if _recon["pendentes"]:
+            print(f"[recon] {len(_recon['pendentes'])} jogos com placar final a conferir")
+    pend = _recon["pendentes"]
+    if not pend:
+        return
+
+    correcoes = []
+    feitos = 0
+    for fi in list(pend):
+        if feitos >= _RECON_JOGOS_POR_CICLO:
+            break
+        if _recon["tentativas"].get(fi, 0) >= _RECON_MAX_TENTATIVAS:
+            pend.pop(fi)
+            continue
+        if agora - _recon["ultima"].get(fi, 0) < _RECON_ESPERA_SEG:
+            continue
+        feitos += 1
+        _recon["ultima"][fi] = agora
+        placar = betsapi_client.obter_placar_final(fi)
+        if placar is None:
+            _recon["tentativas"][fi] = _recon["tentativas"].get(fi, 0) + 1
+            continue
+        gols = placar[0] + placar[1]
+        txt_placar = f"{placar[0]} x {placar[1]}"
+        for r in pend.pop(fi):
+            try:
+                res, lucro_un = estado.calcular_resultado(
+                    _num(r["linha"]), _num(r["odd"]), 1.0, gols)
+            except Exception as e:
+                print(f"[recon] linha {r['row']} ilegível ({e}); só grava o placar")
+                correcoes.append({"row": r["row"], "resultado": r["resultado_atual"].title(),
+                                  "retorno": "", "placar": txt_placar, "so_placar": True})
+                continue
+            mudou = res != r["resultado_atual"]
+            correcoes.append({"row": r["row"], "resultado": res.title(),
+                              "retorno": round(lucro_un, 4), "placar": txt_placar})
+            if mudou:
+                print(f"[recon] CORRIGIDO {r['id']}: {r['resultado_atual']} -> {res} "
+                      f"(placar final {txt_placar})")
+                _corrigir_no_estado(est, r["id"], res, lucro_un, gols)
+
+    if correcoes:
+        # linhas ilegíveis: não sobrescreve resultado/retorno, só o placar
+        normais = [c for c in correcoes if not c.get("so_placar")]
+        so_placar = [c for c in correcoes if c.get("so_placar")]
+        ok = sheets_client.escrever_correcoes(normais)
+        if so_placar:
+            ok = sheets_client.escrever_placares(so_placar) and ok
+        if not ok:
+            # volta pra fila pra tentar de novo na próxima leitura
+            _recon["pendentes"] = None
+
+
+def _corrigir_no_estado(est: dict, id_aposta: str, resultado: str, lucro_un: float, gols: int) -> None:
+    """Ajusta histórico/banca do estado e a marca no Telegram quando o resultado mudou."""
+    for a in est["apostas_resolvidas"]:
+        if a.get("id_aposta") != id_aposta:
+            continue
+        novo_lucro = lucro_un * config.STAKE_UNIDADE
+        if a.get("notificar", True):
+            est["banca"] += novo_lucro - a["lucro"]
+        a["resultado"], a["lucro"], a["gols_totais_final"] = resultado, round(novo_lucro, 2), gols
+        chat = a.get("chat_canal") or (config.CHAT_ID_SIMULACAO if a.get("notificar", True) else None)
+        if chat and a.get("msg_canal_id"):
+            base = a.get("msg_canal_texto") or (
+                f"{html.escape(a['jogo'], quote=False)}\nUnder {a['linha']} @{a['odd']:.2f}")
+            marca = config.MARCAS_RESULTADO.get(resultado, "❔")
+            telegram_client.editar_mensagem(chat, a["msg_canal_id"], f"{base}\n{marca}")
+        break
 
 
 def _em_brasilia(iso_utc: str) -> datetime:
@@ -396,6 +523,10 @@ def ciclo() -> None:
         processar_jogo(jogo, est, orcamento=orcamento)
 
     resolver_apostas_pendentes(est, lista_ao_vivo)
+    try:
+        reconciliar_placares(est)
+    except Exception as e:
+        print(f"[erro] reconciliação: {e}")
     enviar_relatorio_diario_se_necessario(est)
 
     estado.salvar(est)
