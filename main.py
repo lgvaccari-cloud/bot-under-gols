@@ -333,11 +333,11 @@ def enviar_relatorio_diario_se_necessario(est: dict) -> None:
         # só das entradas avisadas neste canal
         por_dia = {}
         for a in est["apostas_resolvidas"]:
-            canal = a.get("chat_canal") or (
-                config.CHAT_ID_SIMULACAO if a.get("notificar", True) else None)
-            if canal != chat_id:
+            # mesmo critério da planilha: todas as entradas do minuto,
+            # no dia (Brasília) em que a entrada foi feita
+            if a.get("minuto_alvo", config.MINUTO_GATILHO) != minuto:
                 continue
-            d = _em_brasilia(a["data_resolucao"])
+            d = _em_brasilia(a["data_entrada"])
             if d.strftime("%Y-%m") != hoje[:7]:
                 continue
             por_dia[d.day] = por_dia.get(d.day, 0.0) + a["lucro"] / config.STAKE_UNIDADE
