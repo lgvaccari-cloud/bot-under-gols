@@ -330,7 +330,7 @@ def _placar_final_estimado(fi: str):
 # resolvida na planilha, corrige resultado/retorno se estiver errado e
 # preenche a coluna "Placar final". Poucas chamadas por ciclo.
 # ---------------------------------------------------------------------
-_RECON_JOGOS_POR_CICLO = 4
+_RECON_JOGOS_POR_CICLO = 12
 _RECON_MAX_TENTATIVAS = 6
 _RECON_ESPERA_SEG = 20 * 60
 _recon = {"pendentes": None, "proxima_leitura": 0.0, "tentativas": {}, "ultima": {}}
@@ -376,7 +376,7 @@ def reconciliar_placares(est: dict) -> None:
 
     correcoes = []
     feitos = 0
-    for fi in list(pend):
+    for fi in reversed(list(pend)):  # mais recentes primeiro
         if feitos >= _RECON_JOGOS_POR_CICLO:
             break
         if _recon["tentativas"].get(fi, 0) >= _RECON_MAX_TENTATIVAS:
