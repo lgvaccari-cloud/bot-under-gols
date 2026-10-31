@@ -297,7 +297,8 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
                 f"{html.escape(aposta['jogo'], quote=False)}\n"
                 f"Under {aposta['linha']} @{aposta['odd']:.2f}"
             )
-            novo_texto = f"{base}\n{marca}"
+            novo_texto = (f"{base}\n{marca}\n\n"
+                          f"➡️ Resultado: {placar_final[0]}x{placar_final[1]}")
             editou = False
             if aposta.get("msg_canal_id"):
                 editou = telegram_client.editar_mensagem(
@@ -406,7 +407,7 @@ def reconciliar_placares(est: dict) -> None:
             if mudou:
                 print(f"[recon] CORRIGIDO {r['id']}: {r['resultado_atual']} -> {res} "
                       f"(placar final {txt_placar})")
-                _corrigir_no_estado(est, r["id"], res, lucro_un, gols)
+                _corrigir_no_estado(est, r["id"], res, lucro_un, gols, txt_placar)
 
     if correcoes:
         # linhas ilegíveis: não sobrescreve resultado/retorno, só o placar
@@ -420,7 +421,7 @@ def reconciliar_placares(est: dict) -> None:
             _recon["pendentes"] = None
 
 
-def _corrigir_no_estado(est: dict, id_aposta: str, resultado: str, lucro_un: float, gols: int) -> None:
+def _corrigir_no_estado(est: dict, id_aposta: str, resultado: str, lucro_un: float, gols: int, txt_placar: str = "") -> None:
     """Ajusta histórico/banca do estado e a marca no Telegram quando o resultado mudou."""
     for a in est["apostas_resolvidas"]:
         if a.get("id_aposta") != id_aposta:
@@ -434,7 +435,8 @@ def _corrigir_no_estado(est: dict, id_aposta: str, resultado: str, lucro_un: flo
             base = a.get("msg_canal_texto") or (
                 f"{html.escape(a['jogo'], quote=False)}\nUnder {a['linha']} @{a['odd']:.2f}")
             marca = config.MARCAS_RESULTADO.get(resultado, "❔")
-            telegram_client.editar_mensagem(chat, a["msg_canal_id"], f"{base}\n{marca}")
+            telegram_client.editar_mensagem(
+                chat, a["msg_canal_id"], f"{base}\n{marca}\n\n➡️ Resultado: {txt_placar.replace(' ', '')}")
         break
 
 
