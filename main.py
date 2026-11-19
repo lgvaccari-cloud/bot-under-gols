@@ -536,6 +536,11 @@ def ciclo() -> None:
 
 def main() -> None:
     print("Bot Under Gols iniciado.")
+    try:
+        import ml_diag
+        ml_diag.rodar()  # diagnóstico único do futuro bot de ML
+    except Exception as e:
+        print(f"[ML-DIAG] erro: {e}")
     while True:
         try:
             ciclo()
