@@ -572,12 +572,17 @@ def enviar_relatorio_diario_se_necessario(est: dict) -> None:
             emoji = "✅" if u > 1e-9 else ("❌" if u < -1e-9 else "🔄")
             sufixo = "  ← hoje" if dia == agora_br.day else ""
             linhas.append(f"{dia:02d}: {emoji} {u:+.2f}{sufixo}")
+        # banca própria do canal: banca inicial + lucro de tudo que o ramo já resolveu
+        lucro_total_r = sum(a["lucro"] for a in est["apostas_resolvidas"]
+                            if a.get("ramo") is not None and a.get("minuto_alvo") == minuto_r)
+        banca_r = config.BANCA_INICIAL + lucro_total_r
         telegram_client.enviar_mensagem(
             chat_r,
-            f"📊 Relatório diário (min {minuto_r} filtrado) — {agora_br.strftime('%d/%m')}\n\n"
+            f"📊 Relatório diário (min {minuto_r}) — {agora_br.strftime('%d/%m')}\n\n"
             f"{MESES[agora_br.month]}\n"
             + ("\n".join(linhas) if linhas else "sem entradas ainda")
-            + f"\n\nMês: {sum(por_dia.values()):+.2f} un")
+            + f"\n\nMês: {sum(por_dia.values()):+.2f} un"
+            + f"\nBanca atual: R${banca_r:,.2f}")
     est["ultimo_relatorio_enviado"] = hoje
 
 
