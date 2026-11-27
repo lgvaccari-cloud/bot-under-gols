@@ -251,10 +251,30 @@ def obter_detalhe_evento(fi: str) -> dict:
                 for k in ("goal", "total", "over", "under", "line"))
     })
 
+    # diagnóstico extra (só quando não achou odd): o que veio DENTRO dos mercados
+    # "Goal Line"/"Match Goals" -- linha (HA), odd (OD) e se está suspenso (SU).
+    # Serve pra descobrir se o mercado veio sem preço (suspenso) ou em outro formato.
+    detalhe_gols = []
+    if not odds_under:
+        grupo = ""
+        for it in resultados:
+            if not isinstance(it, dict):
+                continue
+            t = it.get("type")
+            if t == "MG":
+                grupo = (it.get("NA") or "").lower()
+                continue
+            if ("goal line" in grupo or "match goals" in grupo) and "1st" not in grupo \
+                    and t in ("MA", "PA") and len(detalhe_gols) < 14:
+                detalhe_gols.append(
+                    f"{grupo[:14]}|{t}|{it.get('NA')}|HA={it.get('HA')}|OD={it.get('OD')}|SU={it.get('SU')}"
+                )
+
     return {
         "minuto_exato": minuto_exato,
         "odds_under": odds_under,
         "grupos_gols": grupos_gols,
+        "detalhe_gols": detalhe_gols,
         "_bruto_debug": resultados,  # temporário: pra diagnosticar formato real
     }
 
