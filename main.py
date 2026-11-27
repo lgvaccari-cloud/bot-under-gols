@@ -181,9 +181,23 @@ def processar_jogo(jogo: dict, est: dict, orcamento: dict = None) -> None:
     # checagem BARATA (sem API): se o placar já não é 0x0, o jogo nunca
     # mais bate o padrão -- encerra o acompanhamento dele.
     if (jogo["gols_casa"], jogo["gols_fora"]) != config.PLACAR_GATILHO:
-        print(f"[descartado {fi}] {jogo['time_casa']} x {jogo['time_fora']}: placar "
-              f"{jogo['gols_casa']}-{jogo['gols_fora']} (min estimado {jogo['minuto_estimado']})")
-        estado.marcar_jogo_verificado(est, fi)
+        # A API às vezes manda um placar errado por alguns minutos em ligas
+        # pequenas (ex: 0-1 num jogo que seguia 0x0 -- confirmado em 2026-11-27).
+        # Descartar de vez na 1ª leitura perdia o jogo. Agora só desiste quando
+        # a janela de entrada já passou; antes disso segue olhando a cada ciclo
+        # (a lista ao vivo já vem de graça) e, se o placar voltar a 0x0, o jogo
+        # volta a valer.
+        limite = max(config.MINUTOS_ENTRADA) + config.TOLERANCIA_MINUTOS + config.JANELA_CONFIRMACAO_MINUTOS
+        minuto_est = jogo["minuto_estimado"]
+        ainda_cedo = (minuto_est is None) or (minuto_est <= limite)
+        chave = (fi, jogo["gols_casa"], jogo["gols_fora"])
+        if chave not in _jogos_vistos:
+            _jogos_vistos.add(chave)
+            print(f"[placar != 0x0 {fi}] {jogo['time_casa']} x {jogo['time_fora']}: placar "
+                  f"{jogo['gols_casa']}-{jogo['gols_fora']} (min estimado {minuto_est})"
+                  + (" -- segue de olho, pode ser erro da API" if ainda_cedo else " -- descartado"))
+        if not ainda_cedo:
+            estado.marcar_jogo_verificado(est, fi)
         return
 
     ja_visto = fi in est["entradas_por_jogo"]
