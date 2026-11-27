@@ -153,11 +153,12 @@ def registrar_entrada(jogo: dict, est: dict, alvo: int, minuto_real, linha, odd:
             texto_ramo = (
                 f"{html.escape(jogo['time_casa'], quote=False)} x {html.escape(jogo['time_fora'], quote=False)}\n"
                 f"{html.escape(jogo['liga'], quote=False)}\n"
-                f"Under {linha} @{odd:.2f}  (min {alvo})"
+                f"Under {linha} @{odd:.2f}"
             )
-            msg_ramo = (telegram_client.enviar_mensagem(config.CHAT_ID_RAMO, texto_ramo)
-                        if config.CHAT_ID_RAMO else None)
-            aposta["ramo"] = {"chat": config.CHAT_ID_RAMO, "msg_id": msg_ramo, "texto": texto_ramo}
+            chat_ramo = config.RAMO_CANAIS.get(alvo, "")
+            msg_ramo = (telegram_client.enviar_mensagem(chat_ramo, texto_ramo)
+                        if chat_ramo else None)
+            aposta["ramo"] = {"chat": chat_ramo, "msg_id": msg_ramo, "texto": texto_ramo}
             if config.GOOGLE_SHEET_ID_RAMO:
                 sheets_client.registrar_entrada(
                     id_aposta=aposta["id_aposta"], data_hora=aposta["data_entrada"],
@@ -541,10 +542,10 @@ def enviar_relatorio_diario_se_necessario(est: dict) -> None:
     for minuto, chat_id in config.CANAIS_POR_MINUTO.items():
         telegram_client.enviar_mensagem(chat_id, _montar(chat_id, minuto))
 
-    if config.CHAT_ID_RAMO and config.RAMO_ATIVO:
+    for minuto_r, chat_r in config.RAMO_CANAIS.items():
         por_dia = {}
         for a in est["apostas_resolvidas"]:
-            if a.get("ramo") is None:
+            if a.get("ramo") is None or a.get("minuto_alvo") != minuto_r:
                 continue
             d = _em_brasilia(a["data_entrada"])
             if d.strftime("%Y-%m") != hoje[:7]:
@@ -557,8 +558,8 @@ def enviar_relatorio_diario_se_necessario(est: dict) -> None:
             sufixo = "  ← hoje" if dia == agora_br.day else ""
             linhas.append(f"{dia:02d}: {emoji} {u:+.2f}{sufixo}")
         telegram_client.enviar_mensagem(
-            config.CHAT_ID_RAMO,
-            f"📊 Relatório diário (min {'+'.join(str(x) for x in config.RAMO_MINUTOS)}) — {agora_br.strftime('%d/%m')}\n\n"
+            chat_r,
+            f"📊 Relatório diário (min {minuto_r} filtrado) — {agora_br.strftime('%d/%m')}\n\n"
             f"{MESES[agora_br.month]}\n"
             + ("\n".join(linhas) if linhas else "sem entradas ainda")
             + f"\n\nMês: {sum(por_dia.values()):+.2f} un")

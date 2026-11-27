@@ -127,14 +127,16 @@ if CHAT_ID_MIN18:
 # RAMIFICAÇÃO: entradas dos minutos RAMO_MINUTOS, sem as ligas excluídas
 # aqui, vão TAMBÉM pra um canal e uma planilha próprios. O bot principal
 # continua igual. Tudo por variável de ambiente (sem redeploy pra mudar):
-#   CHAT_ID_RAMO            canal do Telegram da ramificação
+#   CHAT_ID_RAMO_18         canal do Telegram da ramificação, entradas do min 18
+#   CHAT_ID_RAMO_22         canal do Telegram da ramificação, entradas do min 22
 #   GOOGLE_SHEET_ID_RAMO    planilha própria da ramificação
 #   RAMO_LIGAS_EXCLUIDAS    termos do nome da liga/país, separados por ";"
 #                           (ex: "Czechia;MLS;Women")  -- compara sem maiúsc.
-# A ramificação só liga se CHAT_ID_RAMO ou GOOGLE_SHEET_ID_RAMO existir.
+# A ramificação só liga se algum CHAT_ID_RAMO_xx ou GOOGLE_SHEET_ID_RAMO existir.
 # ---------------------------------------------------------------------
 RAMO_MINUTOS = [18, 22]
-CHAT_ID_RAMO = os.environ.get("CHAT_ID_RAMO", "")
+RAMO_CANAIS = {m: os.environ.get(f"CHAT_ID_RAMO_{m}", "") for m in RAMO_MINUTOS}
+RAMO_CANAIS = {m: c for m, c in RAMO_CANAIS.items() if c}   # só os configurados
 GOOGLE_SHEET_ID_RAMO = os.environ.get("GOOGLE_SHEET_ID_RAMO", "")
 RAMO_LIGAS_EXCLUIDAS = [t.strip().lower() for t in
                         os.environ.get("RAMO_LIGAS_EXCLUIDAS", "").split(";") if t.strip()]
@@ -154,7 +156,7 @@ try:
 except Exception as _e:
     print(f"[aviso] lista de ligas excluídas da ramificação não carregou: {_e}")
 
-RAMO_ATIVO = bool(CHAT_ID_RAMO or GOOGLE_SHEET_ID_RAMO)
+RAMO_ATIVO = bool(RAMO_CANAIS or GOOGLE_SHEET_ID_RAMO)
 
 # ---------------------------------------------------------------------
 # Simulação (banca fictícia)
