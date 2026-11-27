@@ -63,10 +63,8 @@ ODD_MAXIMA = 2.00
 # é ignorada tanto pro alerta quanto pra simulação.
 # ---------------------------------------------------------------------
 LIGAS_EXCLUIDAS_TERMOS = [
-    "u17", "u18", "u19", "u20", "u21", "u22", "u23",
-    "sub-17", "sub-18", "sub-19", "sub-20", "sub-21", "sub-22", "sub-23",
-    "sub 17", "sub 18", "sub 19", "sub 20", "sub 21", "sub 22", "sub 23",
-    "youth", "junior", "juvenil", "reserve", "reservas",
+    # categorias de base (u17..u23, sub-xx, youth, junior, juvenil) LIBERADAS em 2026-11-27
+    "reserve", "reservas",
     "esoccer", "e-soccer", "efootball", "e-football", "cyber", "fifa",
 ]
 
