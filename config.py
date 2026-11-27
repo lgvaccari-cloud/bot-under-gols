@@ -138,6 +138,22 @@ CHAT_ID_RAMO = os.environ.get("CHAT_ID_RAMO", "")
 GOOGLE_SHEET_ID_RAMO = os.environ.get("GOOGLE_SHEET_ID_RAMO", "")
 RAMO_LIGAS_EXCLUIDAS = [t.strip().lower() for t in
                         os.environ.get("RAMO_LIGAS_EXCLUIDAS", "").split(";") if t.strip()]
+
+
+def _norm_liga(nome: str) -> str:
+    return (nome or "").replace("\u2019", "'").strip().lower()
+
+
+# Lista de ligas excluídas da ramificação: nomes EXATOS (um por linha) em
+# ramo_ligas_excluidas.txt. Comparação pelo nome inteiro, sem maiúsculas.
+RAMO_LIGAS_EXCLUIDAS_EXATAS = set()
+try:
+    _arq = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ramo_ligas_excluidas.txt")
+    with open(_arq, "r", encoding="utf-8") as _f:
+        RAMO_LIGAS_EXCLUIDAS_EXATAS = {_norm_liga(l) for l in _f if l.strip()}
+except Exception as _e:
+    print(f"[aviso] lista de ligas excluídas da ramificação não carregou: {_e}")
+
 RAMO_ATIVO = bool(CHAT_ID_RAMO or GOOGLE_SHEET_ID_RAMO)
 
 # ---------------------------------------------------------------------

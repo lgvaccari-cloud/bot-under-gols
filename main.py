@@ -46,7 +46,9 @@ def liga_excluida(nome_liga: str) -> bool:
 
 def ramo_aceita(nome_liga: str) -> bool:
     """A ramificação aceita a liga se nenhum termo de RAMO_LIGAS_EXCLUIDAS aparece no nome."""
-    nome = (nome_liga or "").lower()
+    nome = config._norm_liga(nome_liga)
+    if nome in config.RAMO_LIGAS_EXCLUIDAS_EXATAS:
+        return False
     return not any(t in nome for t in config.RAMO_LIGAS_EXCLUIDAS)
 
 
