@@ -124,6 +124,23 @@ if CHAT_ID_MIN18:
     CANAIS_POR_MINUTO[18] = CHAT_ID_MIN18
 
 # ---------------------------------------------------------------------
+# RAMIFICAÇÃO: entradas dos minutos RAMO_MINUTOS, sem as ligas excluídas
+# aqui, vão TAMBÉM pra um canal e uma planilha próprios. O bot principal
+# continua igual. Tudo por variável de ambiente (sem redeploy pra mudar):
+#   CHAT_ID_RAMO            canal do Telegram da ramificação
+#   GOOGLE_SHEET_ID_RAMO    planilha própria da ramificação
+#   RAMO_LIGAS_EXCLUIDAS    termos do nome da liga/país, separados por ";"
+#                           (ex: "Czechia;MLS;Women")  -- compara sem maiúsc.
+# A ramificação só liga se CHAT_ID_RAMO ou GOOGLE_SHEET_ID_RAMO existir.
+# ---------------------------------------------------------------------
+RAMO_MINUTOS = [18, 22]
+CHAT_ID_RAMO = os.environ.get("CHAT_ID_RAMO", "")
+GOOGLE_SHEET_ID_RAMO = os.environ.get("GOOGLE_SHEET_ID_RAMO", "")
+RAMO_LIGAS_EXCLUIDAS = [t.strip().lower() for t in
+                        os.environ.get("RAMO_LIGAS_EXCLUIDAS", "").split(";") if t.strip()]
+RAMO_ATIVO = bool(CHAT_ID_RAMO or GOOGLE_SHEET_ID_RAMO)
+
+# ---------------------------------------------------------------------
 # Simulação (banca fictícia)
 # ---------------------------------------------------------------------
 BANCA_INICIAL = 100_000.00   # R$100.000

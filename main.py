@@ -44,6 +44,12 @@ def liga_excluida(nome_liga: str) -> bool:
     return any(termo in nome for termo in termos)
 
 
+def ramo_aceita(nome_liga: str) -> bool:
+    """A ramificação aceita a liga se nenhum termo de RAMO_LIGAS_EXCLUIDAS aparece no nome."""
+    nome = (nome_liga or "").lower()
+    return not any(t in nome for t in config.RAMO_LIGAS_EXCLUIDAS)
+
+
 def faixa_de_odd(odd: float) -> str:
     """Rótulo da faixa de odd (vai pra planilha, pra comparar ROI por faixa)."""
     if odd < 1.80:
@@ -138,6 +144,28 @@ def registrar_entrada(jogo: dict, est: dict, alvo: int, minuto_real, linha, odd:
         faixa_odd=faixa_de_odd(odd),
         genero=genero_do_jogo(jogo["liga"], jogo["time_casa"], jogo["time_fora"]),
     )
+
+    # ---- ramificação: mesmo jogo, só minutos escolhidos e sem as ligas excluídas
+    if config.RAMO_ATIVO and alvo in config.RAMO_MINUTOS and ramo_aceita(jogo["liga"]):
+        try:
+            texto_ramo = (
+                f"{html.escape(jogo['time_casa'], quote=False)} x {html.escape(jogo['time_fora'], quote=False)}\n"
+                f"{html.escape(jogo['liga'], quote=False)}\n"
+                f"Under {linha} @{odd:.2f}  (min {alvo})"
+            )
+            msg_ramo = (telegram_client.enviar_mensagem(config.CHAT_ID_RAMO, texto_ramo)
+                        if config.CHAT_ID_RAMO else None)
+            aposta["ramo"] = {"chat": config.CHAT_ID_RAMO, "msg_id": msg_ramo, "texto": texto_ramo}
+            if config.GOOGLE_SHEET_ID_RAMO:
+                sheets_client.registrar_entrada(
+                    id_aposta=aposta["id_aposta"], data_hora=aposta["data_entrada"],
+                    campeonato=jogo["liga"], partida=descricao, linha=linha, odd=odd,
+                    minuto=alvo, faixa_odd=faixa_de_odd(odd),
+                    genero=genero_do_jogo(jogo["liga"], jogo["time_casa"], jogo["time_fora"]),
+                    sheet_id=config.GOOGLE_SHEET_ID_RAMO,
+                )
+        except Exception as e:
+            print(f"[erro] ramificação (registro): {e}")
 
 
 def processar_jogo(jogo: dict, est: dict, orcamento: dict = None) -> None:
@@ -314,6 +342,27 @@ def resolver_apostas_pendentes(est: dict, lista_ao_vivo: list) -> None:
             placar=f"{placar_final[0]} x {placar_final[1]}",
         )
 
+        ramo = aposta.get("ramo")
+        if ramo is not None:
+            try:
+                marca = config.MARCAS_RESULTADO.get(resolvida["resultado"], "❔")
+                txt_ramo = (f"{ramo.get('texto', '')}\n{marca}\n\n"
+                            f"➡️ Resultado: {placar_final[0]}x{placar_final[1]}")
+                if ramo.get("chat"):
+                    ok = bool(ramo.get("msg_id")) and telegram_client.editar_mensagem(
+                        ramo["chat"], ramo["msg_id"], txt_ramo)
+                    if not ok:
+                        telegram_client.enviar_mensagem(ramo["chat"], txt_ramo)
+                if config.GOOGLE_SHEET_ID_RAMO:
+                    sheets_client.atualizar_resultado(
+                        id_aposta=aposta.get("id_aposta", ""),
+                        resultado=resolvida["resultado"], lucro_reais=resolvida["lucro"],
+                        placar=f"{placar_final[0]} x {placar_final[1]}",
+                        sheet_id=config.GOOGLE_SHEET_ID_RAMO,
+                    )
+            except Exception as e:
+                print(f"[erro] ramificação (resultado): {e}")
+
     est["apostas_abertas"] = ainda_abertas
 
 
@@ -489,6 +538,28 @@ def enviar_relatorio_diario_se_necessario(est: dict) -> None:
 
     for minuto, chat_id in config.CANAIS_POR_MINUTO.items():
         telegram_client.enviar_mensagem(chat_id, _montar(chat_id, minuto))
+
+    if config.CHAT_ID_RAMO and config.RAMO_ATIVO:
+        por_dia = {}
+        for a in est["apostas_resolvidas"]:
+            if a.get("ramo") is None:
+                continue
+            d = _em_brasilia(a["data_entrada"])
+            if d.strftime("%Y-%m") != hoje[:7]:
+                continue
+            por_dia[d.day] = por_dia.get(d.day, 0.0) + a["lucro"] / config.STAKE_UNIDADE
+        linhas = []
+        for dia in sorted(por_dia):
+            u = por_dia[dia]
+            emoji = "✅" if u > 1e-9 else ("❌" if u < -1e-9 else "🔄")
+            sufixo = "  ← hoje" if dia == agora_br.day else ""
+            linhas.append(f"{dia:02d}: {emoji} {u:+.2f}{sufixo}")
+        telegram_client.enviar_mensagem(
+            config.CHAT_ID_RAMO,
+            f"📊 Relatório diário (min {'+'.join(str(x) for x in config.RAMO_MINUTOS)}) — {agora_br.strftime('%d/%m')}\n\n"
+            f"{MESES[agora_br.month]}\n"
+            + ("\n".join(linhas) if linhas else "sem entradas ainda")
+            + f"\n\nMês: {sum(por_dia.values()):+.2f} un")
     est["ultimo_relatorio_enviado"] = hoje
 
 

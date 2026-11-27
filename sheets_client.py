@@ -31,7 +31,7 @@ import config
 _ESCOPOS = ["https://www.googleapis.com/auth/spreadsheets"]
 
 _cliente = None
-_planilha = None
+_planilhas = {}   # sheet_id -> aba (Página1)
 
 COLUNA_ID = 11  # K -- 1-indexado (A=1, B=2, ..., K=11)
 COLUNA_RESULTADO = 9   # I
@@ -40,23 +40,25 @@ COLUNA_PLACAR = 15     # O -- placar final ("2 x 1")
 _cabecalho_ok = False
 
 
-def _conectar():
-    """Conecta preguiçosamente (só na primeira vez que for usado)."""
-    global _cliente, _planilha
-    if _planilha is not None:
-        return _planilha
+def _conectar(sheet_id: str = None):
+    """Conecta preguiçosamente (1x por planilha). Sem sheet_id: a planilha principal."""
+    global _cliente
+    sheet_id = sheet_id or config.GOOGLE_SHEET_ID
+    if sheet_id in _planilhas:
+        return _planilhas[sheet_id]
 
-    if not config.GOOGLE_SERVICE_ACCOUNT_JSON or not config.GOOGLE_SHEET_ID:
+    if not config.GOOGLE_SERVICE_ACCOUNT_JSON or not sheet_id:
         raise RuntimeError(
             "GOOGLE_SERVICE_ACCOUNT_JSON ou GOOGLE_SHEET_ID não configurados -- "
             "registro na planilha desativado."
         )
 
-    info_credencial = json.loads(config.GOOGLE_SERVICE_ACCOUNT_JSON)
-    credenciais = Credentials.from_service_account_info(info_credencial, scopes=_ESCOPOS)
-    _cliente = gspread.authorize(credenciais)
-    _planilha = _cliente.open_by_key(config.GOOGLE_SHEET_ID).sheet1
-    return _planilha
+    if _cliente is None:
+        info_credencial = json.loads(config.GOOGLE_SERVICE_ACCOUNT_JSON)
+        credenciais = Credentials.from_service_account_info(info_credencial, scopes=_ESCOPOS)
+        _cliente = gspread.authorize(credenciais)
+    _planilhas[sheet_id] = _cliente.open_by_key(sheet_id).sheet1
+    return _planilhas[sheet_id]
 
 
 def _estimar_pais(campeonato: str) -> str:
@@ -73,14 +75,15 @@ def _estimar_pais(campeonato: str) -> str:
 
 def registrar_entrada(id_aposta: str, data_hora: str, campeonato: str,
                        partida: str, linha, odd: float, minuto=None,
-                       faixa_odd: str = "", genero: str = "") -> None:
+                       faixa_odd: str = "", genero: str = "",
+                       sheet_id: str = None) -> None:
     """
     Adiciona uma linha no Log assim que a aposta é aberta, com status
     "Aguardando" -- id_aposta precisa ser único (ex: "{fi}_{linha}"),
     usado depois pra achar e atualizar essa mesma linha.
     """
     try:
-        aba = _conectar()
+        aba = _conectar(sheet_id)
         pais = _estimar_pais(campeonato)
         tip = f"Under {linha}"
 
@@ -109,13 +112,13 @@ def garantir_cabecalho_placar() -> None:
 
 
 def atualizar_resultado(id_aposta: str, resultado: str, lucro_reais: float,
-                        placar: str = "") -> None:
+                        placar: str = "", sheet_id: str = None) -> None:
     """
     Acha a linha com esse id_aposta (coluna K) e atualiza Resultado,
     Retorno Líquido e Placar final. Se não achar a linha, não faz nada.
     """
     try:
-        aba = _conectar()
+        aba = _conectar(sheet_id)
         celula = aba.find(id_aposta, in_column=COLUNA_ID)
         if celula is None:
             print(f"[aviso] Não achei a linha da aposta {id_aposta} na planilha "
